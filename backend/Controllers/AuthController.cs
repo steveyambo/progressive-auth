@@ -39,27 +39,24 @@ public class AuthController(AppDbContext context) : ControllerBase
 
         var user = new Users
         {
-            Name = request.Name,
-            Email = request.Email,
-            Password = request.Password
+            Name = name,
+            Email = email,
+            Password = password
         };
 
-        var userDto = new
-        {
-            user.Id,
-            user.Name,
-            user.Email,
-            user.Password,
-            user.CreatedAt
-
-        };
-        _context.Add(user);
+        _context.Users.Add(user);
         await _context.SaveChangesAsync();
 
         return Ok(new
         {
             message = "Account created successfully",
-            userDto
+            user = new
+            {
+                user.Id,
+                user.Name,
+                user.Email,
+                user.CreatedAt
+            }
         });
     }
 
