@@ -25,7 +25,7 @@ export default function LoginPage(){
                 email,
                 password
             })
-            router.push("/Dashboard");
+            router.push("/dashboard");
         }catch(error){
             setError(error instanceof Error ? error.message : "login failed");
         }finally{
