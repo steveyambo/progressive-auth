@@ -15,7 +15,7 @@ POST {{baseUrl}}/api/auth/login
 Content-Type: application/json
 
 {
-  "email": "steve@test.com",
+  "email": "steve@test-v2.com",
   "password": "123456",
   "rememberMe": true
 }
@@ -25,6 +25,9 @@ GET {{baseUrl}}/api/auth/me
 
 ### Dashboard
 GET {{baseUrl}}/api/dashboard
+
+### Admin
+GET {{baseUrl}}/api/admin
 
 ### Logout
 POST {{baseUrl}}/api/auth/logout
