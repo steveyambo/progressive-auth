@@ -7,6 +7,6 @@ public class Users
     public string Email { get; set; } = string.Empty;
 
     public string PasswordHash { get; set; } = string.Empty;
-
+    public UserRole Role { get; set; } = UserRole.USER;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

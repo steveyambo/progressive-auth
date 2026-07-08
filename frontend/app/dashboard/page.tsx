@@ -9,6 +9,7 @@ type DashboardData = {
   user: {
     name: string;
     email: string;
+    role: "USER" | "ADMIN";
   };
   stats: {
     authenticationLevel: string;
@@ -97,6 +98,9 @@ export default function DashboardPage() {
             <p className="mt-3 text-lg font-semibold">{dashboard.user.name}</p>
             <p className="mt-1 text-sm text-slate-400">
               {dashboard.user.email}
+            </p>
+            <p className="mt-3 inline-flex rounded-md border border-slate-700 px-2 py-1 text-xs font-medium text-cyan-200">
+              {dashboard.user.role}
             </p>
           </article>
 

@@ -2,6 +2,7 @@ export type User = {
   id: number;
   name: string;
   email: string;
+  role: "USER" | "ADMIN";
   createdAt: string;
 };
 
@@ -74,6 +75,7 @@ export function getDashboard() {
     user: {
       name: string;
       email: string;
+      role: "USER" | "ADMIN";
     };
     stats: {
       authenticationLevel: string;
