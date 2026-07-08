@@ -81,13 +81,29 @@ Cette roadmap est la reference avant chaque nouvelle branche. Une version ne doi
 - System design: le reset password devient un flux separe avec token limite dans le temps.
 - Fin de version: un password peut etre reinitialise avec un token valide et refuse avec un token invalide/expire; V7 est mergee dans `main`.
 
-### V8: Advanced Security
+### V8: Sessions Table / Revocation
 
-- But: durcir le systeme comme une application proche production.
-- Pourquoi: une auth exposee doit resister aux abus, aux brute force et aux sessions compromises.
-- Amelioration reelle prevue: rate limiting, logs de securite, statut de compte, expiration/revocation des sessions, configuration cookie production.
-- System design: l'auth ne fait plus seulement login/logout; elle surveille, limite, expire et peut revoquer.
-- Fin de version: les protections principales sont testees et documentees; V8 est mergee dans `main`.
+- But: ne plus dependre seulement du cookie signe; pouvoir suivre et revoquer les sessions.
+- Pourquoi: un utilisateur doit pouvoir fermer une session compromise ou toutes ses sessions.
+- Amelioration reelle prevue: table `Sessions`, `SessionId` dans les claims, expiration cote DB, revocation au logout.
+- System design: `Cookie Session Id -> Sessions Table -> Active/Expired/Revoked Session`.
+- Fin de version: logout revoque la session courante, logout all devices revoque toutes les sessions; V8 est mergee dans `main`.
+
+### V9: Security Hardening
+
+- But: proteger l'auth contre les abus.
+- Pourquoi: une auth exposee doit resister au brute force, aux comptes attaques et aux comportements suspects.
+- Amelioration reelle prevue: rate limiting, logs de securite, compteur d'echecs login, blocage temporaire, configuration cookie production.
+- System design: `Request -> Rate Limiter -> Auth -> Audit Logs -> Monitoring`.
+- Fin de version: les protections principales sont testees et documentees; V9 est mergee dans `main`.
+
+### V10: Deployment / Observability
+
+- But: rapprocher le projet d'un vrai systeme deployable.
+- Pourquoi: une architecture serieuse doit separer dev/prod, config, logs, build et deploiement.
+- Amelioration reelle prevue: variables d'environnement, config dev/prod, seed admin securise, build frontend/backend, documentation finale.
+- System design: `Frontend -> API -> DB -> Logs -> Monitoring -> CI/CD`.
+- Fin de version: l'application a un chemin de lancement et de verification proche production; V10 est mergee dans `main`.
 
 Note: V1/V2 utilisent deja techniquement un cookie de session et `[Authorize]` pour avoir un dashboard vraiment protege. V3 et V4 ne doivent donc pas simplement renommer l'existant; elles doivent rendre ces mecanismes plus clairs, plus controles et plus maintenables.
 
@@ -424,17 +440,119 @@ Un hash n'est pas reversible. On ne dechiffre jamais un password: on verifie seu
 
 ### V3: Sessions + Cookies
 
-Objectif prevu:
+Ce qui a ete fait:
 
 - ajouter `rememberMe` au login
-- garder une session courte par defaut
-- rendre la session persistante seulement si l'utilisateur le demande
-- retourner des erreurs API propres en 401/403
-- documenter le trajet exact du cookie HTTP-only
+- session courte par defaut quand `rememberMe = false`
+- session persistante plus longue quand `rememberMe = true`
+- checkbox `Remember me` dans la page `/login`
+- verification dans le navigateur via le cookie `progressive_auth_session`
 
-Pourquoi cette version vient apres V2:
+Pourquoi cette version existe:
 
-Une fois les passwords hashes, le prochain sujet important est la maniere dont l'utilisateur reste connecte entre plusieurs requetes. Le frontend ne doit pas stocker le password ni fabriquer lui-meme l'identite; il demande au backend de reconnaitre la session.
+HTTP est stateless: chaque requete est independante. Sans session, le backend ne peut pas savoir qu'une requete vient d'un utilisateur deja connecte. V3 explique et controle donc la maniere dont l'identite est conservee entre plusieurs requetes.
+
+System design V3:
+
+```txt
++------------------+
+|      User        |
+| Browser          |
++--------+---------+
+         |
+         | email/password/rememberMe
+         v
++--------------------------+
+| Frontend Next.js         |
+| /login                   |
+|                          |
+| - affiche le formulaire  |
+| - envoie rememberMe      |
++------------+-------------+
+             |
+             | POST /api/auth/login
+             | JSON
+             v
++--------------------------+
+| Backend ASP.NET Core     |
+| AuthController.Login     |
+|                          |
+| - verifie le password    |
+| - construit les claims   |
+| - cree authProperties    |
++------------+-------------+
+             |
+             | SignInAsync()
+             v
++--------------------------+
+| Cookie Auth Ticket       |
+| progressive_auth_session |
+|                          |
+| HttpOnly                 |
+| SameSite=Lax             |
+| Expiration selon choix   |
++------------+-------------+
+             |
+             | Set-Cookie
+             v
++--------------------------+
+| Browser Cookie Store     |
+|                          |
+| Session cookie           |
+| ou persistent cookie     |
++------------+-------------+
+             |
+             | cookie renvoye automatiquement
+             v
++--------------------------+
+| Protected API Routes     |
+| /api/auth/me             |
+| /api/dashboard           |
++--------------------------+
+```
+
+Flux V3:
+
+```txt
+Login sans Remember me
+ -> rememberMe=false
+ -> IsPersistent=false
+ -> expiration courte
+ -> cookie affiche "Session" dans DevTools
+
+Login avec Remember me
+ -> rememberMe=true
+ -> IsPersistent=true
+ -> expiration longue
+ -> cookie affiche une date d'expiration dans DevTools
+```
+
+Ce que V3 change cote backend:
+
+- `LoginRequest` recoit `RememberMe`
+- `AuthController.Login` cree des `AuthenticationProperties`
+- `IsPersistent` depend de `RememberMe`
+- `ExpiresUtc` change selon le type de session choisi
+
+Ce que V3 change cote frontend:
+
+- `frontend/lib/api.ts` envoie `rememberMe` dans le JSON de login
+- la page `/login` affiche une checkbox `Remember me`
+- le navigateur stocke le cookie sans que JavaScript puisse le lire directement
+
+Limites restantes:
+
+- le cookie contient un ticket signe, mais il n'y a pas encore de table `Sessions`
+- on ne peut pas encore lister ou revoquer les sessions actives
+- la configuration cookie est adaptee au dev local, pas encore durcie pour production
+
+Tests de validation:
+
+- login sans `Remember me` cree un cookie `progressive_auth_session` de type session
+- login avec `Remember me` cree un cookie persistant
+- `/api/auth/me` fonctionne apres login
+- `/api/dashboard` fonctionne apres login
+- logout supprime la session
 
 ### V4: Authentication Middleware
 
@@ -487,19 +605,48 @@ Pourquoi cette version vient apres V6:
 
 Le reset password depend d'une adresse email fiable. Il vient donc apres la verification email.
 
-### V8: Advanced Security
+### V8: Sessions Table / Revocation
 
 Objectif prevu:
 
-- rate limiting
-- logs de securite
-- statut de compte
-- expiration et revocation de sessions
-- durcissement de la configuration cookie en production
+- ajouter une table `Sessions`
+- stocker un identifiant de session dans les claims
+- verifier que la session existe encore et n'est pas revoquee
+- revoquer la session courante au logout
+- ajouter un logout all devices
 
 Pourquoi cette version vient apres V7:
 
-Quand les grands flux utilisateur existent, on peut durcir le systeme contre les abus: brute force, sessions compromises, comptes bloques, logs et configuration production.
+Quand les grands flux utilisateur existent, on peut rendre les sessions observables et revocables. C'est une brique importante avant le durcissement securite general.
+
+### V9: Security Hardening
+
+Objectif prevu:
+
+- rate limiting sur login/register/reset password
+- logs de securite
+- compteur d'echecs login
+- blocage temporaire de compte
+- durcissement de la configuration cookie en production
+
+Pourquoi cette version vient apres V8:
+
+Une fois les sessions suivies en base, le systeme peut reagir plus proprement aux abus: limiter, journaliser, bloquer, expirer et revoquer.
+
+### V10: Deployment / Observability
+
+Objectif prevu:
+
+- variables d'environnement
+- configuration dev/prod
+- seed admin securise
+- build frontend/backend
+- documentation finale avec schema global
+- preparation CI/CD ou Docker si necessaire
+
+Pourquoi cette version vient apres V9:
+
+Quand l'auth est fonctionnelle et durcie, la derniere etape est de rendre le projet plus proche d'un vrai environnement: configuration propre, builds reproductibles, logs et chemin de deploiement.
 
 ## Workflow Git
 
