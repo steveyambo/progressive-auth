@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using backend.Data;
 using backend.Dtos;
+using backend.Extensions;
 using backend.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
@@ -141,18 +142,18 @@ public class AuthController(
     [HttpGet("me")]
     public async Task<IActionResult> Me()
     {
-        var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var userId = User.GetUserId();
 
-        if (!int.TryParse(userIdValue, out var userId))
+        if (userId is null)
         {
-            return Unauthorized("Invalid session.");
+            return Unauthorized(new { message = "Invalid session." });
         }
 
-        var user = await _context.Users.FindAsync(userId);
+        var user = await _context.Users.FindAsync(userId.Value);
 
         if (user is null)
         {
-            return Unauthorized("User no longer exists.");
+            return Unauthorized(new { message = "User no longer exists." });
         }
 
         return Ok(new
