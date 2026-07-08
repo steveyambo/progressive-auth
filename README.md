@@ -8,7 +8,7 @@ Application d'authentification progressive avec:
 
 Etat actuel: V2. L'application permet de creer un compte, se connecter, se deconnecter, lire l'utilisateur courant et acceder a un dashboard protege. Les mots de passe sont maintenant stockes sous forme de hash.
 
-Ce projet n'est pas seulement une app login/register. C'est un projet pedagogique de system design: chaque version ajoute une brique d'authentification, explique pourquoi elle existe, puis la merge dans `main` seulement quand elle est terminee.
+Ce projet n'est pas seulement une app login/register. C'est une progression d'authentification: chaque version ajoute une amelioration reelle, documente pourquoi elle existe, puis est mergee dans `main` seulement quand elle est terminee et testee.
 
 ## Architecture
 
@@ -21,33 +21,75 @@ User
 
 Le frontend affiche les pages et appelle l'API en JSON. Le backend valide les donnees, gere la session cookie, hash les mots de passe et lit/ecrit dans SQLite avec Entity Framework Core.
 
-## Roadmap Pedagogique
+## Roadmap Progressive
 
-Le plan complet du projet est progressif:
+Cette roadmap est la reference avant chaque nouvelle branche. Une version ne doit pas ajouter du bruit ou des details inutiles: elle doit corriger une limite concrete de la version precedente.
 
-```txt
-V1 -> inscription, connexion, deconnexion, page protegee, stockage utilisateur
-V2 -> hash du mot de passe
-V3 -> sessions + cookies
-V4 -> middleware d'authentification
-V5 -> roles utilisateur: USER et ADMIN
-V6 -> verification email
-V7 -> mot de passe oublie avec token temporaire
-V8 -> securite avancee: rate limiting, logs, statut de compte, expiration/revocation des sessions
-```
+### V1: Basic Auth Flow
 
-Pourquoi cette progression:
+- But: creer le squelette complet `User -> Frontend -> Backend API -> Database`.
+- Pourquoi: avant de renforcer la securite, il faut un flux fonctionnel complet.
+- Amelioration reelle: inscription, connexion, deconnexion, page protegee, stockage utilisateur SQLite.
+- System design: le frontend envoie des requetes HTTP JSON au backend, le backend stocke l'utilisateur dans `Users`.
+- Fin de version: register/login/logout/dashboard fonctionnent et la V1 est mergee dans `main`.
 
-- V1 pose le flux complet minimal: un utilisateur peut creer un compte, se connecter, acceder a une page protegee et se deconnecter.
-- V2 corrige la faiblesse la plus evidente de V1: ne jamais stocker un mot de passe en clair.
-- V3 isole le sujet des sessions et cookies pour comprendre comment le navigateur reste connecte entre deux requetes.
-- V4 isole le middleware d'authentification pour comprendre comment le backend reconnait et protege automatiquement certaines routes.
-- V5 ajoute l'autorisation par role, parce qu'etre connecte ne veut pas toujours dire avoir tous les droits.
-- V6 ajoute la verification email pour confirmer que l'utilisateur controle l'adresse fournie.
-- V7 ajoute le reset password avec token temporaire pour couvrir un flux d'authentification realiste.
-- V8 ajoute les protections avancees necessaires quand l'app se rapproche d'un vrai systeme de production.
+### V2: Password Hashing
 
-Note: la V1/V2 actuelles utilisent deja techniquement un cookie de session et `[Authorize]` pour avoir un dashboard vraiment protege. Les versions V3 et V4 ne serviront donc pas a "inventer" ces concepts depuis zero, mais a les rendre pedagogiques, explicites, mieux structures et plus proches d'un systeme professionnel.
+- But: ne plus stocker le mot de passe en clair.
+- Pourquoi: si la base fuite, les passwords ne doivent pas etre lisibles directement.
+- Amelioration reelle: `Password` devient `PasswordHash`, `Register` hash le password, `Login` verifie avec `VerifyHashedPassword`.
+- System design: le password clair est temporaire pendant la requete; seul le hash persiste en database.
+- Fin de version: les anciens retours API ne renvoient ni password ni hash, le login marche avec hash, la V2 est mergee dans `main`.
+
+### V3: Sessions + Cookies
+
+- But: rendre la session cookie explicite, controlee et plus robuste.
+- Pourquoi: HTTP est stateless; le backend doit reconnaitre l'utilisateur entre plusieurs requetes sans exposer le password au frontend.
+- Amelioration reelle prevue: `rememberMe`, session courte par defaut, session persistante seulement si demandee, reponses API 401/403 propres pour les appels API.
+- System design: `Login -> Set-Cookie HTTP-only -> navigateur renvoie cookie -> backend reconstruit l'identite`.
+- Fin de version: login avec et sans rememberMe, `/me`, dashboard et logout sont testes; le README explique le flow session/cookie; V3 est mergee dans `main`.
+
+### V4: Authentication Middleware
+
+- But: structurer proprement la protection automatique des routes.
+- Pourquoi: on ne veut pas verifier manuellement l'utilisateur dans chaque endpoint.
+- Amelioration reelle prevue: clarifier `UseAuthentication()`, `UseAuthorization()`, `[Authorize]`, centraliser la lecture de l'utilisateur courant si le code commence a se repeter.
+- System design: le pipeline ASP.NET Core authentifie la requete avant d'executer les controllers proteges.
+- Fin de version: les routes protegees utilisent une approche coherente et documentee; V4 est mergee dans `main`.
+
+### V5: Roles USER / ADMIN
+
+- But: ajouter l'autorisation par role.
+- Pourquoi: etre connecte ne veut pas dire avoir tous les droits.
+- Amelioration reelle prevue: role `USER` ou `ADMIN`, endpoints admin, protections par role, affichage adapte cote frontend.
+- System design: authentication = qui es-tu; authorization = qu'as-tu le droit de faire.
+- Fin de version: un user normal ne peut pas acceder aux routes admin, un admin peut; V5 est mergee dans `main`.
+
+### V6: Email Verification
+
+- But: verifier que l'utilisateur controle l'adresse email fournie.
+- Pourquoi: un email non verifie ne doit pas etre considere comme fiable.
+- Amelioration reelle prevue: statut `EmailVerified`, token de verification, endpoint de verification, restrictions tant que l'email n'est pas verifie.
+- System design: l'identite utilisateur gagne un etat de confiance supplementaire.
+- Fin de version: le compte peut etre cree, verifie, puis autorise selon son statut; V6 est mergee dans `main`.
+
+### V7: Forgot Password
+
+- But: permettre a l'utilisateur de recuperer son compte sans connaitre l'ancien password.
+- Pourquoi: un systeme d'authentification realiste doit gerer la perte de mot de passe sans compromettre le compte.
+- Amelioration reelle prevue: token temporaire, expiration, endpoint request-reset, endpoint reset-password, invalidation apres usage.
+- System design: le reset password devient un flux separe avec token limite dans le temps.
+- Fin de version: un password peut etre reinitialise avec un token valide et refuse avec un token invalide/expire; V7 est mergee dans `main`.
+
+### V8: Advanced Security
+
+- But: durcir le systeme comme une application proche production.
+- Pourquoi: une auth exposee doit resister aux abus, aux brute force et aux sessions compromises.
+- Amelioration reelle prevue: rate limiting, logs de securite, statut de compte, expiration/revocation des sessions, configuration cookie production.
+- System design: l'auth ne fait plus seulement login/logout; elle surveille, limite, expire et peut revoquer.
+- Fin de version: les protections principales sont testees et documentees; V8 est mergee dans `main`.
+
+Note: V1/V2 utilisent deja techniquement un cookie de session et `[Authorize]` pour avoir un dashboard vraiment protege. V3 et V4 ne doivent donc pas simplement renommer l'existant; elles doivent rendre ces mecanismes plus clairs, plus controles et plus maintenables.
 
 ## Structure Du Projet
 
@@ -337,16 +379,15 @@ npm run lint
 npm run build
 ```
 
-## Historique Des Versions
+## Historique Et Suite
+
+Cette section sert de journal court. Quand une version est terminee, elle passe de "Objectif prevu" a "Ce qui a ete fait".
 
 ### V1: Basic Authentication
 
-Pourquoi cette version existe:
+Ce qui a ete fait:
 
-V1 sert a construire le squelette complet du systeme avant de parler de securite avancee. L'objectif est de comprendre le trajet principal `User -> Frontend -> Backend API -> Database`.
-
-La V1 a ajoute:
-
+- squelette complet `User -> Frontend -> Backend API -> Database`
 - inscription
 - connexion
 - deconnexion
@@ -355,17 +396,17 @@ La V1 a ajoute:
 - SQLite avec table `Users`
 - frontend Next.js avec pages `/register`, `/login`, `/dashboard`
 
+Pourquoi c'etait necessaire:
+
+V1 etablit le flux de base avant les ameliorations de securite. Sans ce flux, les versions suivantes n'auraient rien de concret a renforcer.
+
 Limite V1:
 
 - le password etait stocke en clair dans la colonne `Password`
 
 ### V2: Password Hashing
 
-Pourquoi cette version existe:
-
-V2 corrige le plus gros probleme de V1: un mot de passe ne doit jamais etre stocke en clair. Elle introduit la difference entre le mot de passe recu pendant la requete et le hash persistant en base.
-
-La V2 corrige la limite principale de la V1:
+Ce qui a ete fait:
 
 - `Password` devient `PasswordHash`
 - `Register` ne sauvegarde plus le mot de passe recu
@@ -375,17 +416,25 @@ La V2 corrige la limite principale de la V1:
 - la session cookie HTTP-only reste utilisee apres connexion
 - `backend/app.db` n'est plus suivi par Git
 
+Pourquoi c'etait necessaire:
+
+V2 corrige le plus gros probleme de V1: un mot de passe ne doit jamais etre stocke en clair. Elle introduit la difference entre le mot de passe recu pendant la requete et le hash persistant en base.
+
 Un hash n'est pas reversible. On ne dechiffre jamais un password: on verifie seulement si le password recu correspond au hash stocke.
 
 ### V3: Sessions + Cookies
 
 Objectif prevu:
 
-- documenter precisement le role du cookie HTTP-only
-- expliquer pourquoi le frontend ne stocke pas lui-meme l'utilisateur connecte
-- clarifier le role de `/api/auth/me`
-- renforcer la configuration du cookie local/dev vs production
-- preparer, si necessaire, une vraie table de sessions pour expiration/revocation future
+- ajouter `rememberMe` au login
+- garder une session courte par defaut
+- rendre la session persistante seulement si l'utilisateur le demande
+- retourner des erreurs API propres en 401/403
+- documenter le trajet exact du cookie HTTP-only
+
+Pourquoi cette version vient apres V2:
+
+Une fois les passwords hashes, le prochain sujet important est la maniere dont l'utilisateur reste connecte entre plusieurs requetes. Le frontend ne doit pas stocker le password ni fabriquer lui-meme l'identite; il demande au backend de reconnaitre la session.
 
 ### V4: Authentication Middleware
 
@@ -397,6 +446,10 @@ Objectif prevu:
 - centraliser la recuperation de l'utilisateur courant
 - separer clairement authentification et autorisation
 
+Pourquoi cette version vient apres V3:
+
+Quand les sessions sont claires, on peut nettoyer la structure du backend: le pipeline ASP.NET Core doit porter la responsabilite d'authentifier la requete avant les controllers.
+
 ### V5: User Roles
 
 Objectif prevu:
@@ -405,6 +458,10 @@ Objectif prevu:
 - proteger certaines routes pour les admins uniquement
 - expliquer la difference entre etre connecte et etre autorise
 
+Pourquoi cette version vient apres V4:
+
+Une fois l'authentification stable, on peut ajouter l'autorisation. Le backend doit pouvoir dire non a un utilisateur connecte s'il n'a pas le bon role.
+
 ### V6: Email Verification
 
 Objectif prevu:
@@ -412,6 +469,10 @@ Objectif prevu:
 - ajouter un champ de statut email verifie/non verifie
 - generer un token de verification
 - bloquer ou limiter certains acces tant que l'email n'est pas verifie
+
+Pourquoi cette version vient apres V5:
+
+Les roles disent ce que l'utilisateur peut faire. La verification email ajoute un autre niveau: est-ce que l'identite declaree est fiable ?
 
 ### V7: Forgot Password
 
@@ -422,6 +483,10 @@ Objectif prevu:
 - permettre de definir un nouveau mot de passe
 - invalider le token apres utilisation
 
+Pourquoi cette version vient apres V6:
+
+Le reset password depend d'une adresse email fiable. Il vient donc apres la verification email.
+
 ### V8: Advanced Security
 
 Objectif prevu:
@@ -431,6 +496,10 @@ Objectif prevu:
 - statut de compte
 - expiration et revocation de sessions
 - durcissement de la configuration cookie en production
+
+Pourquoi cette version vient apres V7:
+
+Quand les grands flux utilisateur existent, on peut durcir le systeme contre les abus: brute force, sessions compromises, comptes bloques, logs et configuration production.
 
 ## Workflow Git
 
@@ -448,6 +517,7 @@ Branches:
 ```txt
 v1-basic-auth
 v2-password-hashing
+v3-session-cookies
 ```
 
 Avant merge d'une version:
@@ -464,7 +534,7 @@ Merge recommande:
 ```powershell
 git checkout main
 git pull
-git merge --no-ff v2-password-hashing -m "Merge V2 password hashing"
+git merge --no-ff nom-de-la-branche -m "Merge version description"
 git push
 ```
 
