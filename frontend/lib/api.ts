@@ -14,6 +14,7 @@ type RegisterInput = {
 type LoginInput = {
   email: string;
   password: string;
+  rememberMe: boolean;
 };
 
 async function request<TResponse>(
