@@ -25,7 +25,7 @@ public class DashboardController : ControllerBase
             },
             stats = new
             {
-                authenticationLevel = "V1 basic cookie session",
+                authenticationLevel = "V2 hashed password + cookie session",
                 isProtected = true
             }
         });
