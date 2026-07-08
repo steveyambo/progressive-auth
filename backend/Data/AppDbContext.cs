@@ -19,6 +19,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<Users>()
             .Property(user => user.Name)
             .IsRequired();
+        
+        modelBuilder.Entity<Users>()
+            .Property(user => user.Role)
+            .HasConversion<string>()
+            .HasMaxLength(20);
 
         modelBuilder.Entity<Users>()
             .Property(user => user.PasswordHash)
