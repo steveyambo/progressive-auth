@@ -62,6 +62,7 @@ public class AuthController(
                 user.Id,
                 user.Name,
                 user.Email,
+                Role = user.Role.ToString(),
                 user.CreatedAt
             }
         });
@@ -134,6 +135,7 @@ public class AuthController(
                 user.Id,
                 user.Name,
                 user.Email,
+                Role = user.Role.ToString(),
                 user.CreatedAt
             }
         });
@@ -164,6 +166,7 @@ public class AuthController(
                 user.Id,
                 user.Name,
                 user.Email,
+                Role = user.Role.ToString(),
                 user.CreatedAt
             }
         });

@@ -22,4 +22,9 @@ public static class CurrentUserExtensions
     {
         return user.FindFirstValue(ClaimTypes.Email);
     }
+
+    public static string? GetUserRole(this ClaimsPrincipal user)
+    {
+        return user.FindFirstValue(ClaimTypes.Role);
+    }
 }

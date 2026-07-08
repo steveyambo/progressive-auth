@@ -14,6 +14,7 @@ public class DashboardController : ControllerBase
     {
         var userName = User.GetUserName();
         var userEmail = User.GetUserEmail();
+        var userRole = User.GetUserRole();
 
         return Ok(new
         {
@@ -21,11 +22,12 @@ public class DashboardController : ControllerBase
             user = new
             {
                 name = userName,
-                email = userEmail
+                email = userEmail,
+                role = userRole
             },
             stats = new
             {
-                authenticationLevel = "V4 authentication middleware pipeline",
+                authenticationLevel = "V5 role-based authorization",
                 isProtected = true
             }
         });
