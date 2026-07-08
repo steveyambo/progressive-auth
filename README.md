@@ -6,7 +6,7 @@ Application d'authentification progressive avec:
 - Backend: C#, ASP.NET Core Web API, Entity Framework Core
 - Database: SQLite
 
-Etat actuel: V4. L'application permet de creer un compte, se connecter, se deconnecter, lire l'utilisateur courant et acceder a un dashboard protege. Les mots de passe sont hashes, les sessions utilisent un cookie HTTP-only avec option `Remember me`, et le pipeline d'authentification ASP.NET Core est documente.
+Etat actuel: V5. L'application permet de creer un compte, se connecter, se deconnecter, lire l'utilisateur courant et acceder a un dashboard protege. Les mots de passe sont hashes, les sessions utilisent un cookie HTTP-only avec option `Remember me`, le pipeline d'authentification ASP.NET Core est documente, et les routes admin peuvent etre protegees par role.
 
 Ce projet n'est pas seulement une app login/register. C'est une progression d'authentification: chaque version ajoute une amelioration reelle, documente pourquoi elle existe, puis est mergee dans `main` seulement quand elle est terminee et testee.
 
@@ -113,6 +113,7 @@ Note: V1/V2 utilisent deja techniquement un cookie de session et `[Authorize]` p
 progressive-auth/
 |-- backend/
 |   |-- Controllers/
+|   |   |-- AdminController.cs
 |   |   |-- AuthController.cs
 |   |   `-- DashboardController.cs
 |   |-- Data/
@@ -124,6 +125,7 @@ progressive-auth/
 |   |   `-- CurrentUserExtensions.cs
 |   |-- Migrations/
 |   |-- Models/
+|   |   |-- UserRole.cs
 |   |   `-- Users.cs
 |   |-- Program.cs
 |   |-- appsettings.json
@@ -150,6 +152,7 @@ POST /api/auth/login
 POST /api/auth/logout
 GET  /api/auth/me
 GET  /api/dashboard
+GET  /api/admin
 ```
 
 ### AuthController
@@ -171,7 +174,7 @@ GET  /api/dashboard
 - Cherche l'utilisateur par email.
 - Verifie le password avec `VerifyHashedPassword`.
 - Cree une session cookie avec `SignInAsync` si le password est valide.
-- Stocke dans le cookie des claims: id, name, email.
+- Stocke dans le cookie des claims: id, name, email, role.
 
 `GET /api/auth/me`
 
@@ -190,9 +193,18 @@ GET  /api/dashboard
 `GET /api/dashboard`
 
 - Route protegee avec `[Authorize]`.
-- Lit le nom et l'email avec `User.GetUserName()` et `User.GetUserEmail()`.
+- Lit le nom, l'email et le role avec `CurrentUserExtensions`.
 - Retourne une reponse simple pour afficher le dashboard.
-- Affiche le niveau actuel: `V4 authentication middleware pipeline`.
+- Affiche le niveau actuel: `V5 role-based authorization`.
+
+### AdminController
+
+`GET /api/admin`
+
+- Route protegee avec `[Authorize(Roles = "ADMIN")]`.
+- Accessible seulement si le cookie contient le claim role `ADMIN`.
+- Retourne `403 Forbidden` pour un utilisateur connecte avec le role `USER`.
+- Retourne `401 Unauthorized` si aucun utilisateur n'est connecte.
 
 ### CurrentUserExtensions
 
@@ -210,6 +222,7 @@ Methodes actuelles:
 GetUserId()
 GetUserName()
 GetUserEmail()
+GetUserRole()
 ```
 
 ### Session Cookie
@@ -251,6 +264,7 @@ Id
 Name
 Email
 PasswordHash
+Role
 CreatedAt
 ```
 
@@ -258,6 +272,7 @@ Migrations importantes:
 
 - `InitialCreate`: cree la table `Users`.
 - `RenamePasswordToPasswordHash`: remplace `Password` par `PasswordHash`.
+- `AddUserRole`: ajoute le role utilisateur stocke en texte (`USER` ou `ADMIN`).
 
 ## Frontend
 
@@ -380,7 +395,7 @@ Tester dans le navigateur:
 4. Se connecter avec le meme email/password.
 5. Verifier la redirection vers `/dashboard`.
 6. Verifier que le dashboard affiche le nom et l'email.
-7. Verifier que le dashboard affiche `V4 authentication middleware pipeline`.
+7. Verifier que le dashboard affiche le role utilisateur.
 8. Cliquer sur `Logout`.
 9. Verifier la redirection vers `/login`.
 10. Aller directement sur `/dashboard`.
@@ -672,15 +687,105 @@ Tests de validation:
 
 ### V5: User Roles
 
-Objectif prevu:
+Ce qui a ete fait:
 
-- ajouter un role utilisateur: `USER` ou `ADMIN`
-- proteger certaines routes pour les admins uniquement
-- expliquer la difference entre etre connecte et etre autorise
+- ajout de l'enum `UserRole` avec `USER` et `ADMIN`
+- ajout de `Users.Role` avec valeur par defaut `USER`
+- stockage du role en texte dans SQLite via `HasConversion<string>()`
+- migration `AddUserRole`
+- ajout du claim `ClaimTypes.Role` dans le cookie au login
+- ajout de `User.GetUserRole()`
+- ajout de `GET /api/admin` protege par `[Authorize(Roles = "ADMIN")]`
+- affichage du role dans le dashboard frontend
 
-Pourquoi cette version vient apres V4:
+Pourquoi cette version existe:
 
 Une fois l'authentification stable, on peut ajouter l'autorisation. Le backend doit pouvoir dire non a un utilisateur connecte s'il n'a pas le bon role.
+
+System design V5:
+
+```txt
++----------------------+
+| User record          |
+| SQLite Users.Role    |
+| USER ou ADMIN        |
++----------+-----------+
+           |
+           | login valide
+           v
++----------------------+
+| AuthController.Login |
+| ajoute ClaimTypes.Role|
++----------+-----------+
+           |
+           | SignInAsync
+           v
++----------------------+
+| Cookie Auth Ticket   |
+| id/name/email/role   |
++----------+-----------+
+           |
+           | requete vers route protegee
+           v
++----------------------+
+| UseAuthentication    |
+| reconstruit User     |
++----------+-----------+
+           |
+           | verifie role si necessaire
+           v
++----------------------+
+| UseAuthorization     |
+| [Authorize]          |
+| [Authorize(Roles)]   |
++----------+-----------+
+           |
+           | ADMIN seulement
+           v
++----------------------+
+| AdminController      |
+| GET /api/admin       |
++----------------------+
+```
+
+Difference importante:
+
+```txt
+Authentication = qui est l'utilisateur ?
+Authorization  = qu'a-t-il le droit de faire ?
+```
+
+Flux V5:
+
+```txt
+Utilisateur USER vers /api/dashboard
+ -> cookie valide
+ -> [Authorize] accepte
+ -> 200 OK
+
+Utilisateur USER vers /api/admin
+ -> cookie valide
+ -> [Authorize(Roles = "ADMIN")] refuse
+ -> 403 Forbidden
+
+Utilisateur ADMIN vers /api/admin
+ -> cookie valide avec role ADMIN
+ -> [Authorize(Roles = "ADMIN")] accepte
+ -> 200 OK
+```
+
+Limites restantes:
+
+- il n'y a pas encore d'interface pour promouvoir un utilisateur en admin
+- pour tester ADMIN en dev, le role peut etre modifie directement dans SQLite
+- les permissions sont encore simples: seulement `USER` et `ADMIN`
+
+Tests de validation:
+
+- un nouvel inscrit recoit le role `USER`
+- `/api/dashboard` fonctionne pour `USER`
+- `/api/admin` retourne `403` pour `USER`
+- apres passage manuel du role a `ADMIN`, `/api/admin` retourne `200`
 
 ### V6: Email Verification
 
@@ -768,6 +873,7 @@ v1-basic-auth
 v2-password-hashing
 v3-session-cookies
 v4-auth-middleware
+v5-roles-admin
 ```
 
 Avant merge d'une version:
