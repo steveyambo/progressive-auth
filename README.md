@@ -8,6 +8,8 @@ Application d'authentification progressive avec:
 
 Etat actuel: V2. L'application permet de creer un compte, se connecter, se deconnecter, lire l'utilisateur courant et acceder a un dashboard protege. Les mots de passe sont maintenant stockes sous forme de hash.
 
+Ce projet n'est pas seulement une app login/register. C'est un projet pedagogique de system design: chaque version ajoute une brique d'authentification, explique pourquoi elle existe, puis la merge dans `main` seulement quand elle est terminee.
+
 ## Architecture
 
 ```txt
@@ -18,6 +20,34 @@ User
 ```
 
 Le frontend affiche les pages et appelle l'API en JSON. Le backend valide les donnees, gere la session cookie, hash les mots de passe et lit/ecrit dans SQLite avec Entity Framework Core.
+
+## Roadmap Pedagogique
+
+Le plan complet du projet est progressif:
+
+```txt
+V1 -> inscription, connexion, deconnexion, page protegee, stockage utilisateur
+V2 -> hash du mot de passe
+V3 -> sessions + cookies
+V4 -> middleware d'authentification
+V5 -> roles utilisateur: USER et ADMIN
+V6 -> verification email
+V7 -> mot de passe oublie avec token temporaire
+V8 -> securite avancee: rate limiting, logs, statut de compte, expiration/revocation des sessions
+```
+
+Pourquoi cette progression:
+
+- V1 pose le flux complet minimal: un utilisateur peut creer un compte, se connecter, acceder a une page protegee et se deconnecter.
+- V2 corrige la faiblesse la plus evidente de V1: ne jamais stocker un mot de passe en clair.
+- V3 isole le sujet des sessions et cookies pour comprendre comment le navigateur reste connecte entre deux requetes.
+- V4 isole le middleware d'authentification pour comprendre comment le backend reconnait et protege automatiquement certaines routes.
+- V5 ajoute l'autorisation par role, parce qu'etre connecte ne veut pas toujours dire avoir tous les droits.
+- V6 ajoute la verification email pour confirmer que l'utilisateur controle l'adresse fournie.
+- V7 ajoute le reset password avec token temporaire pour couvrir un flux d'authentification realiste.
+- V8 ajoute les protections avancees necessaires quand l'app se rapproche d'un vrai systeme de production.
+
+Note: la V1/V2 actuelles utilisent deja techniquement un cookie de session et `[Authorize]` pour avoir un dashboard vraiment protege. Les versions V3 et V4 ne serviront donc pas a "inventer" ces concepts depuis zero, mais a les rendre pedagogiques, explicites, mieux structures et plus proches d'un systeme professionnel.
 
 ## Structure Du Projet
 
@@ -311,12 +341,16 @@ npm run build
 
 ### V1: Basic Authentication
 
+Pourquoi cette version existe:
+
+V1 sert a construire le squelette complet du systeme avant de parler de securite avancee. L'objectif est de comprendre le trajet principal `User -> Frontend -> Backend API -> Database`.
+
 La V1 a ajoute:
 
 - inscription
 - connexion
 - deconnexion
-- session par cookie HTTP-only
+- premiere session par cookie HTTP-only pour rendre le dashboard reellement protege
 - dashboard protege
 - SQLite avec table `Users`
 - frontend Next.js avec pages `/register`, `/login`, `/dashboard`
@@ -326,6 +360,10 @@ Limite V1:
 - le password etait stocke en clair dans la colonne `Password`
 
 ### V2: Password Hashing
+
+Pourquoi cette version existe:
+
+V2 corrige le plus gros probleme de V1: un mot de passe ne doit jamais etre stocke en clair. Elle introduit la difference entre le mot de passe recu pendant la requete et le hash persistant en base.
 
 La V2 corrige la limite principale de la V1:
 
@@ -338,6 +376,61 @@ La V2 corrige la limite principale de la V1:
 - `backend/app.db` n'est plus suivi par Git
 
 Un hash n'est pas reversible. On ne dechiffre jamais un password: on verifie seulement si le password recu correspond au hash stocke.
+
+### V3: Sessions + Cookies
+
+Objectif prevu:
+
+- documenter precisement le role du cookie HTTP-only
+- expliquer pourquoi le frontend ne stocke pas lui-meme l'utilisateur connecte
+- clarifier le role de `/api/auth/me`
+- renforcer la configuration du cookie local/dev vs production
+- preparer, si necessaire, une vraie table de sessions pour expiration/revocation future
+
+### V4: Authentication Middleware
+
+Objectif prevu:
+
+- expliquer `UseAuthentication()`
+- expliquer `UseAuthorization()`
+- expliquer `[Authorize]`
+- centraliser la recuperation de l'utilisateur courant
+- separer clairement authentification et autorisation
+
+### V5: User Roles
+
+Objectif prevu:
+
+- ajouter un role utilisateur: `USER` ou `ADMIN`
+- proteger certaines routes pour les admins uniquement
+- expliquer la difference entre etre connecte et etre autorise
+
+### V6: Email Verification
+
+Objectif prevu:
+
+- ajouter un champ de statut email verifie/non verifie
+- generer un token de verification
+- bloquer ou limiter certains acces tant que l'email n'est pas verifie
+
+### V7: Forgot Password
+
+Objectif prevu:
+
+- generer un token temporaire de reset password
+- stocker une expiration
+- permettre de definir un nouveau mot de passe
+- invalider le token apres utilisation
+
+### V8: Advanced Security
+
+Objectif prevu:
+
+- rate limiting
+- logs de securite
+- statut de compte
+- expiration et revocation de sessions
+- durcissement de la configuration cookie en production
 
 ## Workflow Git
 
