@@ -6,7 +6,7 @@ Application d'authentification progressive avec:
 - Backend: C#, ASP.NET Core Web API, Entity Framework Core
 - Database: SQLite
 
-Etat actuel: V2. L'application permet de creer un compte, se connecter, se deconnecter, lire l'utilisateur courant et acceder a un dashboard protege. Les mots de passe sont maintenant stockes sous forme de hash.
+Etat actuel: V4. L'application permet de creer un compte, se connecter, se deconnecter, lire l'utilisateur courant et acceder a un dashboard protege. Les mots de passe sont hashes, les sessions utilisent un cookie HTTP-only avec option `Remember me`, et le pipeline d'authentification ASP.NET Core est documente.
 
 Ce projet n'est pas seulement une app login/register. C'est une progression d'authentification: chaque version ajoute une amelioration reelle, documente pourquoi elle existe, puis est mergee dans `main` seulement quand elle est terminee et testee.
 
@@ -120,6 +120,8 @@ progressive-auth/
 |   |-- Dtos/
 |   |   |-- LoginRequest.cs
 |   |   `-- RegisterRequest.cs
+|   |-- Extensions/
+|   |   `-- CurrentUserExtensions.cs
 |   |-- Migrations/
 |   |-- Models/
 |   |   `-- Users.cs
@@ -174,7 +176,7 @@ GET  /api/dashboard
 `GET /api/auth/me`
 
 - Route protegee avec `[Authorize]`.
-- Lit l'id utilisateur depuis les claims du cookie.
+- Lit l'id utilisateur avec `User.GetUserId()`.
 - Verifie que l'utilisateur existe encore en base.
 - Retourne les informations utilisateur sans `PasswordHash`.
 
@@ -188,9 +190,27 @@ GET  /api/dashboard
 `GET /api/dashboard`
 
 - Route protegee avec `[Authorize]`.
-- Lit le nom et l'email depuis les claims.
+- Lit le nom et l'email avec `User.GetUserName()` et `User.GetUserEmail()`.
 - Retourne une reponse simple pour afficher le dashboard.
-- Affiche le niveau actuel: `V2 hashed password + cookie session`.
+- Affiche le niveau actuel: `V4 authentication middleware pipeline`.
+
+### CurrentUserExtensions
+
+`backend/Extensions/CurrentUserExtensions.cs` centralise la lecture des claims de l'utilisateur courant.
+
+Pourquoi:
+
+- `UseAuthentication()` remplit `HttpContext.User`.
+- Les controllers n'ont pas besoin de connaitre partout les details de `ClaimTypes`.
+- Le code devient plus lisible: `User.GetUserId()` exprime mieux l'intention que `User.FindFirstValue(...)`.
+
+Methodes actuelles:
+
+```txt
+GetUserId()
+GetUserName()
+GetUserEmail()
+```
 
 ### Session Cookie
 
@@ -360,7 +380,7 @@ Tester dans le navigateur:
 4. Se connecter avec le meme email/password.
 5. Verifier la redirection vers `/dashboard`.
 6. Verifier que le dashboard affiche le nom et l'email.
-7. Verifier que le dashboard affiche `V2 hashed password + cookie session`.
+7. Verifier que le dashboard affiche `V4 authentication middleware pipeline`.
 8. Cliquer sur `Logout`.
 9. Verifier la redirection vers `/login`.
 10. Aller directement sur `/dashboard`.
@@ -556,17 +576,99 @@ Tests de validation:
 
 ### V4: Authentication Middleware
 
-Objectif prevu:
+Ce qui a ete fait:
 
-- expliquer `UseAuthentication()`
-- expliquer `UseAuthorization()`
-- expliquer `[Authorize]`
-- centraliser la recuperation de l'utilisateur courant
-- separer clairement authentification et autorisation
+- `UseHttpsRedirection()` est place avant l'authentification et l'autorisation.
+- `UseAuthentication()` est place avant `UseAuthorization()`.
+- les routes controllers sont mappees apres les middlewares d'auth.
+- le cookie auth retourne maintenant `401` et `403` pour l'API au lieu de redirections HTML.
+- `CurrentUserExtensions` centralise la lecture des claims utilisateur.
+- `AuthController.Me` utilise `User.GetUserId()`.
+- `DashboardController` utilise `User.GetUserName()` et `User.GetUserEmail()`.
 
-Pourquoi cette version vient apres V3:
+Pourquoi cette version existe:
 
-Quand les sessions sont claires, on peut nettoyer la structure du backend: le pipeline ASP.NET Core doit porter la responsabilite d'authentifier la requete avant les controllers.
+Quand les sessions sont claires, il faut comprendre ce que le backend fait a chaque requete. V4 montre que l'authentification n'est pas seulement dans le controller `Login`: elle fait partie du pipeline ASP.NET Core.
+
+System design V4:
+
+```txt
++----------------------+
+| HTTP Request         |
+| Cookie optionnel     |
++----------+-----------+
+           |
+           | HTTPS first
+           v
++----------------------+
+| UseHttpsRedirection  |
+| securise le transport|
++----------+-----------+
+           |
+           | lit le cookie si present
+           v
++----------------------+
+| UseAuthentication    |
+| construit User       |
+| ClaimsPrincipal      |
++----------+-----------+
+           |
+           | verifie [Authorize]
+           v
++----------------------+
+| UseAuthorization     |
+| 401 si non connecte  |
+| 403 si interdit      |
++----------+-----------+
+           |
+           | route autorisee
+           v
++----------------------+
+| Controller           |
+| Auth / Dashboard     |
++----------+-----------+
+           |
+           | lit l'utilisateur courant
+           v
++----------------------+
+| CurrentUserExtensions|
+| GetUserId/Name/Email |
++----------------------+
+```
+
+Flux V4:
+
+```txt
+Requete sans cookie vers /api/dashboard
+ -> UseAuthentication ne trouve pas d'identite
+ -> UseAuthorization voit [Authorize]
+ -> CookieAuthenticationEvents retourne 401
+
+Requete avec cookie valide vers /api/dashboard
+ -> UseAuthentication reconstruit ClaimsPrincipal
+ -> UseAuthorization autorise la requete
+ -> DashboardController lit User.GetUserName()/GetUserEmail()
+ -> 200 OK
+```
+
+Ce que V4 change cote backend:
+
+- le pipeline est ordonne selon: transport, identite, acces, controller
+- les erreurs d'auth sont adaptees a une API JSON
+- la lecture des claims est factorisee dans une extension dediee
+
+Limites restantes:
+
+- il n'y a pas encore de roles ou policies personnalisees
+- `403 Forbidden` sera surtout utile a partir de V5 avec les roles
+- il n'y a pas encore de tests automatises du pipeline
+
+Tests de validation:
+
+- une route `[Authorize]` sans cookie retourne `401 Unauthorized`
+- une route `[Authorize]` avec cookie valide retourne `200 OK`
+- le dashboard affiche le nom et l'email depuis les claims
+- la build backend passe
 
 ### V5: User Roles
 
@@ -665,6 +767,7 @@ Branches:
 v1-basic-auth
 v2-password-hashing
 v3-session-cookies
+v4-auth-middleware
 ```
 
 Avant merge d'une version:

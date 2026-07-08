@@ -1,4 +1,4 @@
-using System.Security.Claims;
+using backend.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -12,8 +12,8 @@ public class DashboardController : ControllerBase
     [HttpGet]
     public IActionResult GetDashboard()
     {
-        var userName = User.FindFirstValue(ClaimTypes.Name);
-        var userEmail = User.FindFirstValue(ClaimTypes.Email);
+        var userName = User.GetUserName();
+        var userEmail = User.GetUserEmail();
 
         return Ok(new
         {
@@ -25,7 +25,7 @@ public class DashboardController : ControllerBase
             },
             stats = new
             {
-                authenticationLevel = "V2 hashed password + cookie session",
+                authenticationLevel = "V4 authentication middleware pipeline",
                 isProtected = true
             }
         });
