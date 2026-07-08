@@ -1,14 +1,14 @@
 # Progressive Auth
 
-Application V1 d'authentification progressive avec:
+Application d'authentification progressive avec:
 
 - Frontend: Next.js, React, TypeScript, Tailwind CSS
 - Backend: C#, ASP.NET Core Web API, Entity Framework Core
-- Base de donnees: SQLite
+- Database: SQLite
 
-La V1 reste volontairement simple: inscription, connexion, deconnexion, session par cookie, page protegee et stockage utilisateur en base.
+Etat actuel: V2. L'application permet de creer un compte, se connecter, se deconnecter, lire l'utilisateur courant et acceder a un dashboard protege. Les mots de passe sont maintenant stockes sous forme de hash.
 
-## Architecture V1
+## Architecture
 
 ```txt
 User
@@ -17,43 +17,42 @@ User
   -> SQLite
 ```
 
-Le frontend affiche les pages et appelle les routes API en JSON.
-Le backend valide les donnees, gere la session cookie et lit/ecrit dans SQLite avec Entity Framework Core.
+Le frontend affiche les pages et appelle l'API en JSON. Le backend valide les donnees, gere la session cookie, hash les mots de passe et lit/ecrit dans SQLite avec Entity Framework Core.
 
-## Structure du projet
+## Structure Du Projet
 
 ```txt
 progressive-auth/
-├── backend/
-│   ├── Controllers/
-│   │   ├── AuthController.cs
-│   │   └── DashboardController.cs
-│   ├── Data/
-│   │   └── AppDbContext.cs
-│   ├── Dtos/
-│   │   ├── LoginRequest.cs
-│   │   └── RegisterRequest.cs
-│   ├── Migrations/
-│   ├── Models/
-│   │   └── Users.cs
-│   ├── Program.cs
-│   ├── appsettings.json
-│   └── backend.http
-├── frontend/
-│   ├── app/
-│   │   ├── dashboard/page.tsx
-│   │   ├── login/page.tsx
-│   │   ├── register/page.tsx
-│   │   └── page.tsx
-│   ├── lib/
-│   │   └── api.ts
-│   └── next.config.ts
-└── README.md
+|-- backend/
+|   |-- Controllers/
+|   |   |-- AuthController.cs
+|   |   `-- DashboardController.cs
+|   |-- Data/
+|   |   `-- AppDbContext.cs
+|   |-- Dtos/
+|   |   |-- LoginRequest.cs
+|   |   `-- RegisterRequest.cs
+|   |-- Migrations/
+|   |-- Models/
+|   |   `-- Users.cs
+|   |-- Program.cs
+|   |-- appsettings.json
+|   `-- backend.http
+|-- frontend/
+|   |-- app/
+|   |   |-- dashboard/page.tsx
+|   |   |-- login/page.tsx
+|   |   |-- register/page.tsx
+|   |   `-- page.tsx
+|   |-- lib/
+|   |   `-- api.ts
+|   `-- next.config.ts
+`-- README.md
 ```
 
 ## Backend
 
-Le backend expose les routes suivantes:
+Routes exposees:
 
 ```txt
 POST /api/auth/register
@@ -72,15 +71,16 @@ GET  /api/dashboard
 - Normalise l'email avec `ToLowerInvariant()`.
 - Refuse les champs vides.
 - Refuse un email deja utilise.
-- Cree un utilisateur en base.
-- Retourne les informations utilisateur sans le password.
+- Cree un hash avec `PasswordHasher<Users>`.
+- Stocke uniquement `PasswordHash` en base.
+- Retourne les informations utilisateur sans `PasswordHash`.
 
 `POST /api/auth/login`
 
 - Recoit `email`, `password`.
 - Cherche l'utilisateur par email.
-- Compare le password recu avec le password stocke.
-- Cree une session cookie avec `SignInAsync`.
+- Verifie le password avec `VerifyHashedPassword`.
+- Cree une session cookie avec `SignInAsync` si le password est valide.
 - Stocke dans le cookie des claims: id, name, email.
 
 `GET /api/auth/me`
@@ -88,7 +88,7 @@ GET  /api/dashboard
 - Route protegee avec `[Authorize]`.
 - Lit l'id utilisateur depuis les claims du cookie.
 - Verifie que l'utilisateur existe encore en base.
-- Retourne les informations utilisateur sans le password.
+- Retourne les informations utilisateur sans `PasswordHash`.
 
 `POST /api/auth/logout`
 
@@ -102,10 +102,11 @@ GET  /api/dashboard
 - Route protegee avec `[Authorize]`.
 - Lit le nom et l'email depuis les claims.
 - Retourne une reponse simple pour afficher le dashboard.
+- Affiche le niveau actuel: `V2 hashed password + cookie session`.
 
-### Session cookie
+### Session Cookie
 
-La V1 utilise un cookie HTTP-only:
+La session utilise un cookie HTTP-only:
 
 ```txt
 progressive_auth_session
@@ -119,33 +120,36 @@ Configuration importante:
 - `ExpireTimeSpan = 2 heures`: duree de session.
 - `SlidingExpiration = true`: prolonge la session si l'utilisateur continue a utiliser l'app.
 
-## Base de donnees
+## Database
 
-La V1 utilise SQLite:
+SQLite est utilise en developpement:
 
 ```txt
 backend/app.db
 ```
 
-La table principale est:
+`app.db` est ignore par Git, car c'est une base locale.
+
+Table principale:
 
 ```txt
 Users
 ```
 
-Colonnes:
+Colonnes actuelles:
 
 ```txt
 Id
 Name
 Email
-Password
+PasswordHash
 CreatedAt
 ```
 
-Une migration EF Core initiale cree cette table et ajoute un index unique sur `Email`.
+Migrations importantes:
 
-Important: `app.db` est ignore par Git, car c'est une base locale de developpement.
+- `InitialCreate`: cree la table `Users`.
+- `RenamePasswordToPasswordHash`: remplace `Password` par `PasswordHash`.
 
 ## Frontend
 
@@ -182,27 +186,28 @@ Cela permet au navigateur d'envoyer le cookie de session au backend.
 
 ### Rewrite Next.js
 
-Le fichier `frontend/next.config.ts` redirige les appels frontend:
+`frontend/next.config.ts` redirige les appels:
 
 ```txt
 http://localhost:3000/api/...
 ```
 
-vers le backend:
+vers:
 
 ```txt
 http://localhost:5000/api/...
 ```
 
-Cela evite de configurer CORS pour la V1 et simplifie l'utilisation du cookie.
+Cela evite de configurer CORS pour cette version locale et simplifie l'utilisation du cookie.
 
-## Flux utilisateur
+## Flux Utilisateur
 
 ### Inscription
 
 ```txt
 /register
   -> POST /api/auth/register
+  -> hash du password
   -> creation utilisateur en SQLite
   -> redirection vers /login
 ```
@@ -212,11 +217,12 @@ Cela evite de configurer CORS pour la V1 et simplifie l'utilisation du cookie.
 ```txt
 /login
   -> POST /api/auth/login
+  -> verification du password contre PasswordHash
   -> creation cookie HTTP-only
   -> redirection vers /dashboard
 ```
 
-### Dashboard protege
+### Dashboard Protege
 
 ```txt
 /dashboard
@@ -234,18 +240,16 @@ Logout
   -> redirection vers /login
 ```
 
-## Lancer le projet
+## Lancer Le Projet
 
-### Backend
+Backend:
 
 ```powershell
 cd backend
 dotnet run --urls "http://localhost:5000"
 ```
 
-### Frontend
-
-Dans un deuxieme terminal:
+Frontend, dans un deuxieme terminal:
 
 ```powershell
 cd frontend
@@ -258,20 +262,21 @@ Puis ouvrir:
 http://localhost:3000
 ```
 
-## Tests manuels V1
+## Tests Manuels
 
 Tester dans le navigateur:
 
 1. Aller sur `/register`.
 2. Creer un compte avec un nouvel email.
 3. Verifier la redirection vers `/login`.
-4. Se connecter.
+4. Se connecter avec le meme email/password.
 5. Verifier la redirection vers `/dashboard`.
 6. Verifier que le dashboard affiche le nom et l'email.
-7. Cliquer sur `Logout`.
-8. Verifier la redirection vers `/login`.
-9. Aller directement sur `/dashboard`.
-10. Verifier que l'utilisateur non connecte est renvoye vers `/login`.
+7. Verifier que le dashboard affiche `V2 hashed password + cookie session`.
+8. Cliquer sur `Logout`.
+9. Verifier la redirection vers `/login`.
+10. Aller directement sur `/dashboard`.
+11. Verifier que l'utilisateur non connecte est renvoye vers `/login`.
 
 Tester le backend avec `backend/backend.http`:
 
@@ -282,9 +287,10 @@ Me
 Dashboard
 Logout
 Me apres logout doit renvoyer 401
+Login avec mauvais password doit renvoyer 401
 ```
 
-## Commandes de verification
+## Commandes De Verification
 
 Backend:
 
@@ -301,37 +307,57 @@ npm run lint
 npm run build
 ```
 
-## Workflow Git utilise
+## Historique Des Versions
 
-La V1 est developpee sur:
+### V1: Basic Authentication
 
-```txt
-v1-basic-auth
-```
+La V1 a ajoute:
+
+- inscription
+- connexion
+- deconnexion
+- session par cookie HTTP-only
+- dashboard protege
+- SQLite avec table `Users`
+- frontend Next.js avec pages `/register`, `/login`, `/dashboard`
+
+Limite V1:
+
+- le password etait stocke en clair dans la colonne `Password`
+
+### V2: Password Hashing
+
+La V2 corrige la limite principale de la V1:
+
+- `Password` devient `PasswordHash`
+- `Register` ne sauvegarde plus le mot de passe recu
+- `Register` genere un hash avec `PasswordHasher<Users>`
+- `Login` verifie le password avec `VerifyHashedPassword`
+- les reponses API ne renvoient jamais `PasswordHash`
+- la session cookie HTTP-only reste utilisee apres connexion
+- `backend/app.db` n'est plus suivi par Git
+
+Un hash n'est pas reversible. On ne dechiffre jamais un password: on verifie seulement si le password recu correspond au hash stocke.
+
+## Workflow Git
 
 Regle appliquee:
 
 ```txt
+une branche par version
 commit souvent quand une partie fonctionne
 push souvent pour sauvegarder a distance
 merge dans main seulement quand la version est terminee
 ```
 
-Exemples de commits faits pendant la V1:
+Branches:
 
 ```txt
-Implement backend auth API
-Clean backend artifacts and sanitize register response
-Scaffold Next.js frontend
-Configure frontend API rewrite
-Add frontend API client
-Add register page
-Add login page
-Add protected dashboard page
-Add frontend home page
+v1-basic-auth
+v2-password-hashing
 ```
 
-Avant merge:
+Avant merge d'une version:
 
 ```powershell
 git status
@@ -345,31 +371,15 @@ Merge recommande:
 ```powershell
 git checkout main
 git pull
-git merge --no-ff v1-basic-auth -m "Merge V1 basic authentication"
+git merge --no-ff v2-password-hashing -m "Merge V2 password hashing"
 git push
 ```
 
-## Limites volontaires de la V1
+## Notes De Securite
 
-Cette V1 est pedagogique et volontairement simple.
+Ne jamais renvoyer `PasswordHash` au frontend.
 
-Limites connues:
-
-- Le mot de passe est stocke en clair.
-- Il n'y a pas encore de hash de password.
-- Il n'y a pas encore de validation avancee du mot de passe.
-- Il n'y a pas encore de refresh token.
-- Il n'y a pas encore de roles ou permissions.
-- Il n'y a pas encore de tests automatises.
-- SQLite est utilise pour demarrer vite.
-
-La V2 devra au minimum remplacer `Password` par `PasswordHash` et utiliser un vrai hash de mot de passe.
-
-## Notes de securite
-
-Ne jamais renvoyer `Password` au frontend.
-
-Meme en V1, les reponses API doivent retourner seulement:
+Les reponses API doivent retourner seulement:
 
 ```txt
 Id
@@ -378,4 +388,4 @@ Email
 CreatedAt
 ```
 
-Le stockage du password en clair est accepte uniquement pour cette V1 d'apprentissage. Il doit etre corrige avant toute utilisation serieuse.
+La V2 hash les mots de passe, mais elle reste une version d'apprentissage. Avant une utilisation serieuse, il faudra ajouter au minimum une validation plus stricte des mots de passe, une configuration production pour les cookies, des tests automatises et une vraie strategie de deploiement.
