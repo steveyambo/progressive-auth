@@ -16,7 +16,8 @@ Content-Type: application/json
 
 {
   "email": "steve@test.com",
-  "password": "123456"
+  "password": "123456",
+  "rememberMe": true
 }
 
 ### Me

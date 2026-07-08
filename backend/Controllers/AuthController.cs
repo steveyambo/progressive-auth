@@ -110,11 +110,20 @@ public class AuthController(
 
         var principal = new ClaimsPrincipal(identity);
 
+        var authProperties = new AuthenticationProperties
+        {
+            IsPersistent = request.RememberMe,
+            ExpiresUtc = request.RememberMe
+         ? DateTimeOffset.UtcNow.AddDays(7)
+         : DateTimeOffset.UtcNow.AddMinutes(30)
+        };
+
         await HttpContext.SignInAsync(
             CookieAuthenticationDefaults.AuthenticationScheme,
-            principal
+            principal,
+            authProperties
         );
-
+        
         return Ok(new
         {
             message = "Login successful.",
