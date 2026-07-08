@@ -25,7 +25,7 @@ public class DashboardController : ControllerBase
             },
             stats = new
             {
-                authenticationLevel = "V2 hashed password + cookie session",
+                authenticationLevel = "V4 authentication middleware pipeline",
                 isProtected = true
             }
         });
