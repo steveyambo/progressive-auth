@@ -7,14 +7,19 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 
 namespace backend.Controllers;
 
 [ApiController]
 [Route("api/auth")]
-public class AuthController(AppDbContext context) : ControllerBase
+public class AuthController(
+    AppDbContext context,
+    IPasswordHasher<Users> passwordHasher
+    ) : ControllerBase
 {
     private readonly AppDbContext _context = context;
+    private readonly IPasswordHasher<Users> _passwordHasher = passwordHasher;
 
     [HttpPost("register")]
     public async Task<IActionResult> Register(RegisterRequest request)
@@ -27,22 +32,23 @@ public class AuthController(AppDbContext context) : ControllerBase
             string.IsNullOrWhiteSpace(email) ||
             string.IsNullOrWhiteSpace(password))
         {
-            return BadRequest(new{message = "Name, email and password are required."});
+            return BadRequest(new { message = "Name, email and password are required." });
         }
 
         var emailAlreadyExists = await _context.Users.AnyAsync(user => user.Email == email);
 
         if (emailAlreadyExists)
         {
-            return Conflict(new{message = "Email is already registered."});
+            return Conflict(new { message = "Email is already registered." });
         }
 
         var user = new Users
         {
             Name = name,
             Email = email,
-            Password = password
         };
+        user.PasswordHash = _passwordHasher.HashPassword(user, password);
+
 
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
@@ -74,7 +80,18 @@ public class AuthController(AppDbContext context) : ControllerBase
 
         var user = await _context.Users.FirstOrDefaultAsync(user => user.Email == email);
 
-        if (user is null || user.Password != password)
+        if (user is null)
+        {
+            return Unauthorized(new { message = "Invalid email or password." });
+        }
+
+        var passwordVerificationResult = _passwordHasher.VerifyHashedPassword(
+            user,
+            user.PasswordHash,
+            password
+        );
+
+        if (passwordVerificationResult == PasswordVerificationResult.Failed)
         {
             return Unauthorized(new { message = "Invalid email or password." });
         }
@@ -129,8 +146,8 @@ public class AuthController(AppDbContext context) : ControllerBase
             return Unauthorized("User no longer exists.");
         }
 
-        return Ok(new 
-        {   
+        return Ok(new
+        {
             user = new
             {
                 user.Id,
@@ -140,14 +157,14 @@ public class AuthController(AppDbContext context) : ControllerBase
             }
         });
     }
-    
+
     [Authorize]
     [HttpPost("logout")]
     public async Task<IActionResult> Logout()
     {
         await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
 
-        return Ok(new {message = "Logout successful."} );
+        return Ok(new { message = "Logout successful." });
     }
 
 }

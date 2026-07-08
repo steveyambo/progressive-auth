@@ -21,7 +21,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .IsRequired();
 
         modelBuilder.Entity<Users>()
-            .Property(user => user.Password)
+            .Property(user => user.PasswordHash)
             .IsRequired();
     }
 }
