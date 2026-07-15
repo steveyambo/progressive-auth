@@ -15,7 +15,9 @@ public class DashboardController : ControllerBase
         var userName = User.GetUserName();
         var userEmail = User.GetUserEmail();
         var userRole = User.GetUserRole();
-
+        var emailVerified =
+            User.FindFirst("email_verified")?.Value == bool.TrueString;
+        
         return Ok(new
         {
             message = $"Welcome back, {userName}.",
@@ -23,11 +25,12 @@ public class DashboardController : ControllerBase
             {
                 name = userName,
                 email = userEmail,
-                role = userRole
+                role = userRole,
+                emailVerified
             },
             stats = new
             {
-                authenticationLevel = "V5 role-based authorization",
+                authenticationLevel = "V6 email verification",
                 isProtected = true
             }
         });

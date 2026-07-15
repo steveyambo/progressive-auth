@@ -211,7 +211,7 @@ public class AuthController(
                 exception,
                 "Verification email could not be resent for user {UserId}.",
                 user.Id);
-                
+
             return StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
                 new
@@ -253,12 +253,24 @@ public class AuthController(
             return Unauthorized(new { message = "Invalid email or password." });
         }
 
+        if (!user.EmailVerified)
+        {
+            return StatusCode(
+                StatusCodes.Status403Forbidden,
+                new
+                {
+                    code = "EMAIL_NOT_VERIFIED",
+                    message = "Verify your email before signing in."
+                });
+        }
+
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new(ClaimTypes.Name, user.Name),
             new(ClaimTypes.Email, user.Email),
-            new(ClaimTypes.Role, user.Role.ToString())
+            new(ClaimTypes.Role, user.Role.ToString()),
+            new("email_verified", user.EmailVerified.ToString())
         };
 
         var identity = new ClaimsIdentity(
@@ -291,6 +303,7 @@ public class AuthController(
                 user.Name,
                 user.Email,
                 Role = user.Role.ToString(),
+                user.EmailVerified,
                 user.CreatedAt
             }
         });
@@ -322,6 +335,7 @@ public class AuthController(
                 user.Name,
                 user.Email,
                 Role = user.Role.ToString(),
+                user.EmailVerified,
                 user.CreatedAt
             }
         });
