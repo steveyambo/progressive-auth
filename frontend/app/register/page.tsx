@@ -1,12 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import React, { useState } from "react";
-import { register } from "../../lib/api";
+import { register, resendVerificationEmail } from "../../lib/api";
+
+type RegistrationResult = {
+  email: string;
+  message: string;
+  emailSent: boolean;
+};
 
 export default function RegisterPage() {
-  const router = useRouter();
+  const [registrationResult, setRegistrationResult] =
+    useState<RegistrationResult | null>(null);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -14,6 +20,7 @@ export default function RegisterPage() {
 
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isResending, setIsResending] = useState(false);
 
   async function handleSubmit(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -22,17 +29,94 @@ export default function RegisterPage() {
     setIsLoading(true);
 
     try {
-      await register({
+      const response = await register({
         name,
         email,
         password,
       });
-      router.push("/login");
+
+      setRegistrationResult({
+        email: email.trim().toLowerCase(),
+        message: response.message,
+        emailSent: response.verificationEmailSent,
+      });
     } catch (error) {
       setError(error instanceof Error ? error.message : "Registration failed.");
     } finally {
       setIsLoading(false);
     }
+  }
+  async function handleResend() {
+    if (!registrationResult) {
+      return;
+    }
+
+    setError("");
+    setIsResending(true);
+
+    try {
+      const response = await resendVerificationEmail(registrationResult.email);
+
+      setRegistrationResult({
+        ...registrationResult,
+        message: response.message,
+        emailSent: true,
+      });
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Verification email could not be resent.",
+      );
+    } finally {
+      setIsResending(false);
+    }
+  }
+
+  if (registrationResult) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white">
+        <section className="w-full max-w-md rounded-lg border border-slate-800 bg-slate-900 p-6 shadow-xl">
+          <p className="text-sm uppercase text-cyan-300">Account created</p>
+
+          <h1 className="mt-2 text-2xl font-semibold">
+            {registrationResult.emailSent
+              ? "Check your inbox"
+              : "Email not sent"}
+          </h1>
+
+          <p className="mt-3 text-sm text-slate-400">
+            {registrationResult.message}
+          </p>
+
+          <p className="mt-3 text-sm text-slate-300">
+            {registrationResult.email}
+          </p>
+
+          {error ? (
+            <p className="mt-4 rounded-md border border-red-900 bg-red-950 px-3 py-2 text-sm text-red-200">
+              {error}
+            </p>
+          ) : null}
+
+          <button
+            className="mt-6 w-full rounded-md bg-cyan-400 px-4 py-2 font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isResending}
+            onClick={handleResend}
+            type="button"
+          >
+            {isResending ? "Sending..." : "Resend verification email"}
+          </button>
+
+          <Link
+            className="mt-3 block rounded-md border border-slate-700 px-4 py-2 text-center font-medium text-slate-200 hover:border-cyan-400"
+            href="/login"
+          >
+            Continue to login
+          </Link>
+        </section>
+      </main>
+    );
   }
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white">

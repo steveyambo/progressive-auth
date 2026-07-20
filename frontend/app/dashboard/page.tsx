@@ -10,6 +10,7 @@ type DashboardData = {
     name: string;
     email: string;
     role: "USER" | "ADMIN";
+    emailVerified: boolean;
   };
   stats: {
     authenticationLevel: string;
@@ -39,16 +40,16 @@ export default function DashboardPage() {
     loadDashboard();
   }, [router]);
 
-  async function handleLogout(){
+  async function handleLogout() {
     setIsLoggingOut(true);
     setError("");
 
-    try{
-        await logout();
-        router.push("/login");
-    } catch (error){
-        setError(error instanceof Error ? error.message : "Logout Faild")
-        setIsLoggingOut(false);
+    try {
+      await logout();
+      router.push("/login");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Logout Faild");
+      setIsLoggingOut(false);
     }
   }
 
@@ -99,9 +100,17 @@ export default function DashboardPage() {
             <p className="mt-1 text-sm text-slate-400">
               {dashboard.user.email}
             </p>
-            <p className="mt-3 inline-flex rounded-md border border-slate-700 px-2 py-1 text-xs font-medium text-cyan-200">
-              {dashboard.user.role}
-            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="rounded-md border border-slate-700 px-2 py-1 text-xs font-medium text-cyan-200">
+                {dashboard.user.role}
+              </span>
+
+              <span className="rounded-md border border-emerald-800 px-2 py-1 text-xs font-medium text-emerald-300">
+                {dashboard.user.emailVerified
+                  ? "Email verified"
+                  : "Email unverified"}
+              </span>
+            </div>
           </article>
 
           <article className="rounded-lg border border-slate-800 bg-slate-900 p-5">
