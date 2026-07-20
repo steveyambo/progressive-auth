@@ -8,5 +8,8 @@ public class Users
 
     public string PasswordHash { get; set; } = string.Empty;
     public UserRole Role { get; set; } = UserRole.USER;
+    public bool EmailVerified { get; set; } = false;
+    public string? EmailVerificationToken { get; set; }
+    public DateTime? EmailVerificationTokenExpiresAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

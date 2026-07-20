@@ -6,7 +6,7 @@ Application d'authentification progressive avec:
 - Backend: C#, ASP.NET Core Web API, Entity Framework Core
 - Database: SQLite
 
-Etat actuel: V5. L'application permet de creer un compte, se connecter, se deconnecter, lire l'utilisateur courant et acceder a un dashboard protege. Les mots de passe sont hashes, les sessions utilisent un cookie HTTP-only avec option `Remember me`, le pipeline d'authentification ASP.NET Core est documente, et les routes admin peuvent etre protegees par role.
+Etat actuel: V6. L'application ajoute maintenant la verification d'adresse email au flux d'authentification. Un compte recoit un token temporaire par email, ne peut pas se connecter avant confirmation, peut demander un nouveau lien et expose son statut `EmailVerified` dans les reponses utilisateur et le dashboard. En developpement, les emails sont envoyes par SMTP vers Mailpit avec Docker Compose.
 
 Ce projet n'est pas seulement une app login/register. C'est une progression d'authentification: chaque version ajoute une amelioration reelle, documente pourquoi elle existe, puis est mergee dans `main` seulement quand elle est terminee et testee.
 
@@ -16,10 +16,14 @@ Ce projet n'est pas seulement une app login/register. C'est une progression d'au
 User
   -> Frontend Next.js
   -> Backend ASP.NET Core Web API
-  -> SQLite
+      -> SQLite
+      -> SMTP Mailpit
+          -> Email de verification
+          -> Frontend /verify-email
+          -> Backend POST /api/auth/verify-email
 ```
 
-Le frontend affiche les pages et appelle l'API en JSON. Le backend valide les donnees, gere la session cookie, hash les mots de passe et lit/ecrit dans SQLite avec Entity Framework Core.
+Le frontend affiche les pages et appelle l'API en JSON. Le backend valide les donnees, gere la session cookie, hash les mots de passe et lit/ecrit dans SQLite avec Entity Framework Core. Pour la V6, le backend genere aussi des tokens temporaires et envoie les liens de verification par SMTP. Mailpit intercepte ces emails localement sans utiliser de domaine ni envoyer de vrais messages.
 
 ## Roadmap Progressive
 
@@ -69,9 +73,9 @@ Cette roadmap est la reference avant chaque nouvelle branche. Une version ne doi
 
 - But: verifier que l'utilisateur controle l'adresse email fournie.
 - Pourquoi: un email non verifie ne doit pas etre considere comme fiable.
-- Amelioration reelle prevue: statut `EmailVerified`, token de verification, endpoint de verification, restrictions tant que l'email n'est pas verifie.
-- System design: l'identite utilisateur gagne un etat de confiance supplementaire.
-- Fin de version: le compte peut etre cree, verifie, puis autorise selon son statut; V6 est mergee dans `main`.
+- Amelioration reelle: statut `EmailVerified`, token temporaire, envoi SMTP, verification, renvoi du lien et refus du login avant verification.
+- System design: `Register -> SQLite -> SMTP Mailpit -> /verify-email -> EmailVerified=true -> Login autorise`.
+- Critere de fin: le compte peut etre cree, recevoir ou renvoyer son email, etre verifie, puis se connecter; V6 est mergee dans `main` seulement apres les tests et la documentation.
 
 ### V7: Forgot Password
 
@@ -120,14 +124,22 @@ progressive-auth/
 |   |   `-- AppDbContext.cs
 |   |-- Dtos/
 |   |   |-- LoginRequest.cs
-|   |   `-- RegisterRequest.cs
+|   |   |-- RegisterRequest.cs
+|   |   |-- ResendVerificationRequest.cs
+|   |   `-- VerifyEmailRequest.cs
 |   |-- Extensions/
 |   |   `-- CurrentUserExtensions.cs
 |   |-- Migrations/
 |   |-- Models/
 |   |   |-- UserRole.cs
 |   |   `-- Users.cs
+|   |-- Options/
+|   |   `-- EmailOptions.cs
+|   |-- Services/
+|   |   |-- IEmailSender.cs
+|   |   `-- SmtpEmailSender.cs
 |   |-- Program.cs
+|   |-- appsettings.Development.json
 |   |-- appsettings.json
 |   `-- backend.http
 |-- frontend/
@@ -135,10 +147,14 @@ progressive-auth/
 |   |   |-- dashboard/page.tsx
 |   |   |-- login/page.tsx
 |   |   |-- register/page.tsx
+|   |   |-- verify-email/
+|   |   |   |-- page.tsx
+|   |   |   `-- verify-email-content.tsx
 |   |   `-- page.tsx
 |   |-- lib/
 |   |   `-- api.ts
 |   `-- next.config.ts
+|-- docker-compose.yml
 `-- README.md
 ```
 
@@ -148,6 +164,8 @@ Routes exposees:
 
 ```txt
 POST /api/auth/register
+POST /api/auth/verify-email
+POST /api/auth/resend-verification
 POST /api/auth/login
 POST /api/auth/logout
 GET  /api/auth/me
@@ -166,15 +184,33 @@ GET  /api/admin
 - Refuse un email deja utilise.
 - Cree un hash avec `PasswordHasher<Users>`.
 - Stocke uniquement `PasswordHash` en base.
+- Genere un token de verification aleatoire valable 24 heures.
+- Enregistre l'utilisateur avant de tenter l'envoi SMTP.
+- Retourne `verificationEmailSent` pour distinguer creation du compte et livraison de l'email.
 - Retourne les informations utilisateur sans `PasswordHash`.
+
+`POST /api/auth/verify-email`
+
+- Recoit un token depuis la page `/verify-email`.
+- Refuse un token absent, inconnu ou expire.
+- Passe `EmailVerified` a `true`.
+- Supprime le token et son expiration apres utilisation.
+
+`POST /api/auth/resend-verification`
+
+- Recoit une adresse email.
+- Retourne une reponse generique pour limiter l'enumeration des comptes.
+- Remplace l'ancien token par un nouveau token valable 24 heures.
+- Retourne `503 Service Unavailable` si le service SMTP est indisponible.
 
 `POST /api/auth/login`
 
 - Recoit `email`, `password`.
 - Cherche l'utilisateur par email.
 - Verifie le password avec `VerifyHashedPassword`.
+- Retourne `403` avec le code `EMAIL_NOT_VERIFIED` si le password est valide mais l'email non verifie.
 - Cree une session cookie avec `SignInAsync` si le password est valide.
-- Stocke dans le cookie des claims: id, name, email, role.
+- Stocke dans le cookie des claims: id, name, email, role et `email_verified`.
 
 `GET /api/auth/me`
 
@@ -194,8 +230,9 @@ GET  /api/admin
 
 - Route protegee avec `[Authorize]`.
 - Lit le nom, l'email et le role avec `CurrentUserExtensions`.
+- Lit le statut email depuis le claim `email_verified`.
 - Retourne une reponse simple pour afficher le dashboard.
-- Affiche le niveau actuel: `V5 role-based authorization`.
+- Affiche le niveau actuel: `V6 email verification`.
 
 ### AdminController
 
@@ -241,6 +278,31 @@ Configuration importante:
 - `ExpireTimeSpan = 2 heures`: duree de session.
 - `SlidingExpiration = true`: prolonge la session si l'utilisateur continue a utiliser l'app.
 
+### Email Delivery En Developpement
+
+`IEmailSender` separe le flux d'authentification du transport utilise pour les emails. La V6 enregistre `SmtpEmailSender`, qui lit `EmailOptions` depuis `appsettings.Development.json`.
+
+Configuration locale:
+
+```txt
+SMTP host: localhost
+SMTP port: 1025
+Mailpit UI: http://localhost:8025
+FrontendBaseUrl: http://localhost:3000
+```
+
+Docker Compose demarre Mailpit et conserve ses messages dans le volume `mailpit_data`. Le port `1025` sert au backend pour envoyer; le port `8025` sert au navigateur pour consulter.
+
+```txt
+AuthController
+  -> IEmailSender
+  -> SmtpEmailSender
+  -> localhost:1025
+  -> Mailpit
+```
+
+Cette separation permettra de remplacer SMTP/Mailpit par un fournisseur reel sans changer le controleur. La V6 ne configure toutefois aucun fournisseur de production et ne necessite aucun nom de domaine.
+
 ## Database
 
 SQLite est utilise en developpement:
@@ -265,6 +327,9 @@ Name
 Email
 PasswordHash
 Role
+EmailVerified
+EmailVerificationToken
+EmailVerificationTokenExpiresAt
 CreatedAt
 ```
 
@@ -273,6 +338,7 @@ Migrations importantes:
 - `InitialCreate`: cree la table `Users`.
 - `RenamePasswordToPasswordHash`: remplace `Password` par `PasswordHash`.
 - `AddUserRole`: ajoute le role utilisateur stocke en texte (`USER` ou `ADMIN`).
+- `AddEmailVerificationFields`: ajoute le statut, le token temporaire et son expiration.
 
 ## Frontend
 
@@ -283,6 +349,7 @@ Pages principales:
 /register
 /login
 /dashboard
+/verify-email
 ```
 
 ### `frontend/lib/api.ts`
@@ -293,11 +360,16 @@ Correspondances:
 
 ```txt
 register()      -> POST /api/auth/register
+verifyEmail()   -> POST /api/auth/verify-email
+resendVerificationEmail()
+                -> POST /api/auth/resend-verification
 login()         -> POST /api/auth/login
 logout()        -> POST /api/auth/logout
 getMe()         -> GET  /api/auth/me
 getDashboard()  -> GET  /api/dashboard
 ```
+
+`ApiError` conserve le statut HTTP et le code metier retourne par le backend. La page de login peut ainsi reconnaitre `EMAIL_NOT_VERIFIED` sans comparer le texte du message.
 
 Toutes les requetes utilisent:
 
@@ -331,8 +403,33 @@ Cela evite de configurer CORS pour cette version locale et simplifie l'utilisati
 /register
   -> POST /api/auth/register
   -> hash du password
-  -> creation utilisateur en SQLite
-  -> redirection vers /login
+  -> creation utilisateur non verifie en SQLite
+  -> generation token valable 24 heures
+  -> envoi SMTP vers Mailpit
+  -> ecran Check your inbox
+```
+
+### Verification Email
+
+```txt
+Mailpit
+  -> clic sur le lien /verify-email?token=...
+  -> Next.js lit le token
+  -> POST /api/auth/verify-email
+  -> backend valide token et expiration
+  -> EmailVerified=true
+  -> token supprime
+  -> redirection manuelle vers /login
+```
+
+### Renvoi De Verification
+
+```txt
+Register ou Login
+  -> POST /api/auth/resend-verification
+  -> nouveau token et nouvelle expiration
+  -> ancien lien invalide
+  -> nouvel email dans Mailpit
 ```
 
 ### Connexion
@@ -341,6 +438,7 @@ Cela evite de configurer CORS pour cette version locale et simplifie l'utilisati
 /login
   -> POST /api/auth/login
   -> verification du password contre PasswordHash
+  -> refus 403 EMAIL_NOT_VERIFIED si email non verifie
   -> creation cookie HTTP-only
   -> redirection vers /dashboard
 ```
@@ -365,14 +463,26 @@ Logout
 
 ## Lancer Le Projet
 
-Backend:
+Mailpit, depuis la racine:
+
+```powershell
+docker compose up -d
+```
+
+Mailpit recoit les emails SMTP sur le port `1025`. Son interface est disponible sur:
+
+```txt
+http://localhost:8025
+```
+
+Backend, dans un deuxieme terminal:
 
 ```powershell
 cd backend
 dotnet run --urls "http://localhost:5000"
 ```
 
-Frontend, dans un deuxieme terminal:
+Frontend, dans un troisieme terminal:
 
 ```powershell
 cd frontend
@@ -391,20 +501,26 @@ Tester dans le navigateur:
 
 1. Aller sur `/register`.
 2. Creer un compte avec un nouvel email.
-3. Verifier la redirection vers `/login`.
-4. Se connecter avec le meme email/password.
-5. Verifier la redirection vers `/dashboard`.
-6. Verifier que le dashboard affiche le nom et l'email.
-7. Verifier que le dashboard affiche le role utilisateur.
-8. Cliquer sur `Logout`.
-9. Verifier la redirection vers `/login`.
-10. Aller directement sur `/dashboard`.
-11. Verifier que l'utilisateur non connecte est renvoye vers `/login`.
+3. Verifier l'ecran `Check your inbox`.
+4. Tenter le login avant verification et verifier `EMAIL_NOT_VERIFIED`.
+5. Verifier que le bouton de renvoi cree un nouvel email dans Mailpit.
+6. Cliquer sur le dernier lien recu.
+7. Verifier que `/verify-email` affiche `Email verified`.
+8. Reutiliser le meme token et verifier qu'il est refuse.
+9. Se connecter avec le meme email/password.
+10. Verifier la redirection vers `/dashboard`.
+11. Verifier le role et le statut `Email verified`.
+12. Cliquer sur `Logout`.
+13. Verifier que l'utilisateur non connecte est renvoye vers `/login`.
 
 Tester le backend avec `backend/backend.http`:
 
 ```txt
 Register
+Login avant verification doit renvoyer 403 EMAIL_NOT_VERIFIED
+Resend verification
+Verify email
+Verify email avec le meme token doit renvoyer 400
 Login
 Me
 Dashboard
@@ -412,6 +528,15 @@ Logout
 Me apres logout doit renvoyer 401
 Login avec mauvais password doit renvoyer 401
 ```
+
+Tester la panne SMTP:
+
+```powershell
+docker compose stop mailpit
+```
+
+- `Register` cree encore le compte et retourne `verificationEmailSent=false`.
+- Apres `docker compose start mailpit`, `Resend verification` envoie un nouveau lien.
 
 ## Commandes De Verification
 
@@ -789,15 +914,132 @@ Tests de validation:
 
 ### V6: Email Verification
 
-Objectif prevu:
+Ce qui a ete fait:
 
-- ajouter un champ de statut email verifie/non verifie
-- generer un token de verification
-- bloquer ou limiter certains acces tant que l'email n'est pas verifie
+- ajout de `EmailVerified`, `EmailVerificationToken` et `EmailVerificationTokenExpiresAt`
+- migration `AddEmailVerificationFields`
+- generation d'un token aleatoire de 32 octets converti en hexadecimal
+- expiration du token apres 24 heures
+- envoi d'un lien par `IEmailSender` et `SmtpEmailSender`
+- environnement Mailpit reproductible avec Docker Compose
+- ajout de `POST /api/auth/verify-email`
+- token invalide apres sa premiere utilisation
+- ajout de `POST /api/auth/resend-verification`
+- remplacement de l'ancien token lors d'un renvoi
+- reponse generique du renvoi pour limiter l'enumeration des comptes
+- gestion explicite d'une panne SMTP pendant l'inscription et le renvoi
+- blocage du login avec `403 EMAIL_NOT_VERIFIED`
+- ajout du claim `email_verified` dans le cookie apres login
+- ajout de `/verify-email` avec `useSearchParams` et `Suspense`
+- ajout du renvoi dans les pages register et login
+- affichage de `Email verified` dans le dashboard
 
 Pourquoi cette version vient apres V5:
 
-Les roles disent ce que l'utilisateur peut faire. La verification email ajoute un autre niveau: est-ce que l'identite declaree est fiable ?
+Les roles disent ce que l'utilisateur peut faire. La verification email ajoute un autre niveau: est-ce que l'identite declaree est fiable ? La V7 pourra ensuite utiliser cette adresse fiable pour recuperer un compte.
+
+System design V6:
+
+```txt
++-----------------------+
+| User / Browser        |
+| /register             |
++-----------+-----------+
+            |
+            | name, email, password
+            v
++-------------------------------+
+| Frontend Next.js              |
+| POST /api/auth/register       |
++---------------+---------------+
+                |
+                v
++-------------------------------+
+| AuthController.Register       |
+| - hash password               |
+| - genere token + expiration   |
+| - EmailVerified = false       |
++----------+--------------------+
+           |
+           | SaveChangesAsync
+           v
++-------------------------------+
+| SQLite Users                  |
+| PasswordHash                  |
+| EmailVerificationToken        |
+| ExpiresAt                     |
++----------+--------------------+
+           |
+           | IEmailSender / SMTP :1025
+           v
++-------------------------------+
+| Mailpit                       |
+| UI http://localhost:8025      |
++----------+--------------------+
+           |
+           | clic sur lien
+           v
++-------------------------------+
+| Next.js /verify-email         |
+| lit ?token=...                |
++----------+--------------------+
+           |
+           | POST /api/auth/verify-email
+           v
++-------------------------------+
+| AuthController.VerifyEmail    |
+| - token existe                |
+| - token non expire            |
+| - EmailVerified = true        |
+| - token et expiration = null  |
++----------+--------------------+
+           |
+           | login apres verification
+           v
++-------------------------------+
+| Cookie HTTP-only              |
+| id/name/email/role            |
+| email_verified=True           |
++-------------------------------+
+```
+
+Gestion d'une panne SMTP:
+
+```txt
+Mailpit arrete
+ -> SaveChangesAsync reussit
+ -> compte conserve avec EmailVerified=false
+ -> register retourne verificationEmailSent=false
+ -> utilisateur redemarre Mailpit
+ -> POST /api/auth/resend-verification
+ -> nouveau token
+ -> nouvel email
+```
+
+Pourquoi le compte n'est pas supprime si SMTP echoue:
+
+SQLite et SMTP sont deux systemes independants. Sauvegarder avant l'envoi garantit que le lien correspond a un compte existant. Un endpoint de renvoi permet ensuite de recuperer d'une panne sans recreer le compte. Une version plus avancee pourrait utiliser un Outbox et un worker pour retenter automatiquement.
+
+Limites restantes:
+
+- Mailpit est uniquement un outil local; aucun vrai email n'est envoye
+- le token de verification est stocke directement en base et n'est pas encore hashe
+- aucun rate limiting ne protege encore register, login ou resend
+- aucun delai minimal ne limite les demandes de renvoi
+- aucun worker ou Outbox ne retente automatiquement un envoi
+- aucune configuration SMTP de production, TLS ou domaine n'est fournie
+
+Tests de validation:
+
+- register avec Mailpit actif retourne `verificationEmailSent=true`
+- register avec Mailpit arrete cree le compte et retourne `verificationEmailSent=false`
+- login avant verification retourne `403 EMAIL_NOT_VERIFIED`
+- renvoi apres redemarrage de Mailpit produit un nouvel email
+- ancien token refuse apres renvoi
+- token expire ou inconnu refuse
+- token valide passe `EmailVerified` a `true` et devient inutilisable
+- login apres verification cree le cookie
+- dashboard affiche `Email verified` et `V6 email verification`
 
 ### V7: Forgot Password
 
@@ -874,6 +1116,7 @@ v2-password-hashing
 v3-session-cookies
 v4-auth-middleware
 v5-roles-admin
+v6-email-verification
 ```
 
 Avant merge d'une version:
@@ -904,7 +1147,11 @@ Les reponses API doivent retourner seulement:
 Id
 Name
 Email
+Role
+EmailVerified
 CreatedAt
 ```
 
-La V2 hash les mots de passe, mais elle reste une version d'apprentissage. Avant une utilisation serieuse, il faudra ajouter au minimum une validation plus stricte des mots de passe, une configuration production pour les cookies, des tests automatises et une vraie strategie de deploiement.
+Ne jamais exposer `PasswordHash` ou `EmailVerificationToken` dans une reponse API.
+
+La V6 utilise Mailpit uniquement en developpement. Elle ne constitue pas encore une configuration de production: il manque notamment un fournisseur email reel, TLS, une configuration par secrets, le hash des tokens temporaires, le rate limiting, des tests automatises et une strategie de deploiement.

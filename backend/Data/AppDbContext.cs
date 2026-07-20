@@ -26,6 +26,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .HasMaxLength(20);
 
         modelBuilder.Entity<Users>()
+            .Property(user => user.EmailVerified)
+            .HasDefaultValue(false);
+
+        modelBuilder.Entity<Users>()
+            .Property(user => user.EmailVerificationToken)
+            .HasMaxLength(128);
+
+        modelBuilder.Entity<Users>()
             .Property(user => user.PasswordHash)
             .IsRequired();
     }

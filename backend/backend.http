@@ -1,13 +1,31 @@
 @baseUrl = http://localhost:5000
+@testEmail = verification-test@test.local
+@verificationToken = PASTE_TOKEN_FROM_MAILPIT
 
 ### Register
 POST {{baseUrl}}/api/auth/register
 Content-Type: application/json
 
 {
-  "name": "Steve",
-  "email": "steve@test.com",
+  "name": "Test User",
+  "email": "{{testEmail}}",
   "password": "123456"
+}
+
+### Verify email
+POST {{baseUrl}}/api/auth/verify-email
+Content-Type: application/json
+
+{
+  "token": "{{verificationToken}}"
+}
+
+### Resend verification email
+POST {{baseUrl}}/api/auth/resend-verification
+Content-Type: application/json
+
+{
+  "email": "{{testEmail}}"
 }
 
 ### Login
@@ -15,7 +33,7 @@ POST {{baseUrl}}/api/auth/login
 Content-Type: application/json
 
 {
-  "email": "steve@test-v2.com",
+  "email": "{{testEmail}}",
   "password": "123456",
   "rememberMe": true
 }

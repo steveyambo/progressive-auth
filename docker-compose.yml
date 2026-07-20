@@ -1,0 +1,16 @@
+services:
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name : progressive-auth-mailpit 
+    restart : unless-stopped
+    ports:
+      - "1025:1025" #SMTP -> Mailpit
+      - "8025:8025" #HTTP 8025 -> Interface Mailpit
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: 500  
+    volumes:
+      - mailpit_data:/data
+
+volumes:
+ mailpit_data:

@@ -3,6 +3,7 @@ export type User = {
   name: string;
   email: string;
   role: "USER" | "ADMIN";
+  emailVerified: boolean;
   createdAt: string;
 };
 
@@ -17,6 +18,17 @@ type LoginInput = {
   password: string;
   rememberMe: boolean;
 };
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code?: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 async function request<TResponse>(
   url: string,
@@ -39,17 +51,46 @@ async function request<TResponse>(
         ? String(data.message)
         : "Request failed.";
 
-    throw new Error(message);
+    const code =
+      data && typeof data === "object" && "code" in data
+        ? String(data.code)
+        : undefined;
+
+    throw new ApiError(message, response.status, code);
   }
 
   return data as TResponse;
 }
 
 export function register(input: RegisterInput) {
-  return request<{ message: string; user: User }>("/api/auth/register", {
+  return request<{
+    message: string;
+    verificationEmailSent: boolean;
+    user: User;
+  }>("/api/auth/register", {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export function verifyEmail(token: string) {
+  return request<{
+    message: string;
+    emailVerified: boolean;
+  }>("/api/auth/verify-email", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
+export function resendVerificationEmail(email: string) {
+  return request<{ message: string }>(
+    "/api/auth/resend-verification",
+    {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    },
+  );
 }
 
 export function login(input: LoginInput) {
@@ -76,6 +117,7 @@ export function getDashboard() {
       name: string;
       email: string;
       role: "USER" | "ADMIN";
+      emailVerified: boolean;
     };
     stats: {
       authenticationLevel: string;

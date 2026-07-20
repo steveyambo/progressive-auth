@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
-import { login } from "../../lib/api";
+import { ApiError, login, resendVerificationEmail } from "../../lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -14,12 +14,18 @@ export default function LoginPage() {
 
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [requiresEmailVerification, setRequiresEmailVerification] =
+    useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [resendMessage, setResendMessage] = useState("");
 
   async function handleSubmit(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
 
     setError("");
     setIsLoading(true);
+    setResendMessage("");
+    setRequiresEmailVerification(false);
 
     try {
       await login({
@@ -29,11 +35,39 @@ export default function LoginPage() {
       });
       router.push("/dashboard");
     } catch (error) {
-      setError(error instanceof Error ? error.message : "login failed");
+      if (error instanceof ApiError && error.code === "EMAIL_NOT_VERIFIED") {
+        setRequiresEmailVerification(true);
+        setError(error.message);
+      } else {
+        setError(error instanceof Error ? error.message : "Login failed.");
+      }
     } finally {
       setIsLoading(false);
     }
   }
+
+  async function handleResend() {
+    setError("");
+    setResendMessage("");
+    setIsResending(true);
+
+    try {
+      const response = await resendVerificationEmail(
+        email.trim().toLowerCase(),
+      );
+
+      setResendMessage(response.message);
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Verification email could not be resent.",
+      );
+    } finally {
+      setIsResending(false);
+    }
+  }
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white">
       <section className="w-full max-w-md rounded-lg border border-slate-800 bg-slate-900 p-6 shadow-xl">
@@ -81,6 +115,23 @@ export default function LoginPage() {
             </p>
           ) : null}
 
+          {requiresEmailVerification ? (
+            <button
+              className="w-full rounded-md border border-cyan-700 px-4 py-2 font-medium text-cyan-200 hover:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isResending}
+              onClick={handleResend}
+              type="button"
+            >
+              {isResending ? "Sending..." : "Resend verification email"}
+            </button>
+          ) : null}
+
+          {resendMessage ? (
+            <p className="rounded-md border border-emerald-900 bg-emerald-950 px-3 py-2 text-sm text-emerald-200">
+              {resendMessage}
+            </p>
+          ) : null}
+          
           <button
             className="w-full rounded-md bg-cyan-400 px-4 py-2 font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={isLoading}

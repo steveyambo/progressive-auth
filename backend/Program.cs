@@ -3,15 +3,28 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
 using backend.Models;
+using backend.Options;
+using backend.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 
+builder.Services.AddOptions<EmailOptions>()
+                .Bind(builder.Configuration.GetSection(EmailOptions.SectionName))
+                .Validate(
+                    options => !string.IsNullOrWhiteSpace(options.SmtpHost),
+                    "Email:SmtpHost is required.")
+                .Validate(
+                    options => options.SmtpPort is > 0 and <= 65535,
+                    "Email:SmtpPort must be a valid port.")
+                .ValidateOnStart();
+
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddScoped<IPasswordHasher<Users>, PasswordHasher<Users>>();
+builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
